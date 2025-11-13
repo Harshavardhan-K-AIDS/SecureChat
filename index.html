@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SecureChat</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Use Inter font */
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Custom scrollbar for chat */
+        #message-list::-webkit-scrollbar {
+            width: 6px;
+        }
+        #message-list::-webkit-scrollbar-track {
+            background: #2d3748; /* gray-800 */
+        }
+        #message-list::-webkit-scrollbar-thumb {
+            background: #4a5568; /* gray-600 */
+            border-radius: 3px;
+        }
+    </style>
+    <!-- Import Inter font from Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+<body class="bg-gray-900 text-white flex h-screen items-center justify-center">
+
+    <div class="w-full max-w-2xl h-full md:h-[90vh] md:max-h-[700px] bg-gray-800 rounded-lg shadow-2xl flex flex-col">
+
+        <!-- Header -->
+        <header class="bg-gray-700 p-4 rounded-t-lg shadow-md flex justify-between items-center">
+            <h1 class="text-xl font-bold">SecureChat</h1>
+            <div id="chat-room-display" class="text-sm text-gray-300 font-mono"></div>
+        </header>
+
+        <!-- Main Content Area -->
+        <main class="flex-grow p-6 overflow-hidden relative">
+
+            <!-- Loading Spinner -->
+            <div id="loading-spinner" class="hidden absolute inset-0 bg-gray-800 bg-opacity-75 flex items-center justify-center z-50">
+                <svg class="animate-spin -ml-1 mr-3 h-8 w-8 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span class="text-lg">Loading...</span>
+            </div>
+
+            <!-- UI: Room Selection -->
+            <div id="room-selection-ui">
+                <h2 class="text-2xl font-semibold mb-4 text-center">Create or Join a Room</h2>
+                <p class="text-gray-400 text-center mb-6">Enter a unique room name and a password.</p>
+                <form id="room-form" class="flex flex-col gap-4">
+                    <label for="room-input" class="sr-only">Room Name</label>
+                    <input type="text" id="room-input" placeholder="e.g., 'secret-project-delta'" class="w-full px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required>
+                    
+                    <label for="room-password-input" class="sr-only">Password</label>
+                    <input type="password" id="room-password-input" placeholder="Enter a password" class="w-full px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required>
+                    
+                    <div id="room-error" class="text-red-400 text-sm text-center hidden"></div>
+
+                    <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg transition duration-200">
+                        Create / Join Room
+                    </button>
+                </form>
+            </div>
+
+            <!-- UI: Password Verification (for joining via URL) -->
+            <div id="password-verify-ui" class="hidden">
+                <h2 class="text-2xl font-semibold mb-4 text-center">Enter Room Password</h2>
+                <p class="text-gray-400 text-center mb-6">This room is password protected. Please enter the password to join.</p>
+                <form id="password-verify-form" class="flex flex-col gap-4">
+                    <label for="password-verify-input" class="sr-only">Password</label>
+                    <input type="password" id="password-verify-input" placeholder="Enter password" class="w-full px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required>
+                    
+                    <div id="password-error" class="text-red-400 text-sm text-center hidden"></div>
+                    
+                    <button type="submit" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg transition duration-200">
+                        Enter Room
+                    </button>
+                </form>
+                <button id="back-to-rooms-btn" class="w-full bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-4 rounded-lg transition duration-200 mt-4">
+                    Back to Room List
+                </button>
+            </div>
+
+            <!-- UI: Name Selection -->
+            <div id="name-selection-ui" class="hidden">
+                <h2 class="text-2xl font-semibold mb-4 text-center">Enter Your Name</h2>
+                <p class="text-gray-400 text-center mb-6">This name will be visible to others in the chat.</p>
+                <form id="name-form" class="flex flex-col gap-4">
+                    <label for="name-input" class="sr-only">Your Name</label>
+                    <input type="text" id="name-input" placeholder="e.g., 'Alice'" class="w-full px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required>
+                    <button type="submit" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg transition duration-200">
+                        Join Chat
+                    </button>
+                </form>
+                 <button id="leave-room-btn" class="w-full bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-4 rounded-lg transition duration-200 mt-4">
+                    Leave Room
+                </button>
+            </div>
+
+            <!-- UI: Chat -->
+            <div id="chat-ui" class="hidden h-full flex flex-col">
+                <!-- Message List -->
+                <div id="message-list" class="flex-grow overflow-y-auto mb-4 p-4 bg-gray-900 rounded-lg space-y-4">
+                    <!-- Messages will be injected here by JavaScript -->
+                </div>
+                
+                <!-- Message Input Form -->
+                <form id="message-form" class="flex-shrink-0 flex gap-3">
+                    <label for="message-input" class="sr-only">Your Message</label>
+                    <input type="text" id="message-input" placeholder="Type your message..." class="flex-grow px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required>
+                    <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-5 rounded-lg transition duration-200">
+                        Send
+                    </button>
+                </form>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- Firebase SDK -->
+    <script type="module">
+        // Import Firebase modules
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { 
+            getAuth, 
+            signInAnonymously, 
+            signInWithCustomToken, 
+            onAuthStateChanged 
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { 
+            getFirestore, 
+            doc, 
+            addDoc, 
+            collection, 
+            onSnapshot, 
+            query,
+            serverTimestamp,
+            setLogLevel,
+            getDoc,
+            setDoc
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- Global Variables ---
+        let app, db, auth;
+        let userId, userName;
+        let currentRoom = null;
+        let unsubscribeMessages = null; // To stop listening to a room
+
+        // DOM Elements
+        const loadingSpinner = document.getElementById('loading-spinner');
+        const roomSelectionUI = document.getElementById('room-selection-ui');
+        const nameSelectionUI = document.getElementById('name-selection-ui');
+        const chatUI = document.getElementById('chat-ui');
+        const passwordVerifyUI = document.getElementById('password-verify-ui');
+        
+        const roomForm = document.getElementById('room-form');
+        const roomInput = document.getElementById('room-input');
+        const roomPasswordInput = document.getElementById('room-password-input');
+        const roomError = document.getElementById('room-error');
+
+        const passwordVerifyForm = document.getElementById('password-verify-form');
+        const passwordVerifyInput = document.getElementById('password-verify-input');
+        const passwordError = document.getElementById('password-error');
+        const backToRoomsBtn = document.getElementById('back-to-rooms-btn');
+        
+        const nameForm = document.getElementById('name-form');
+        const nameInput = document.getElementById('name-input');
+        const leaveRoomBtn = document.getElementById('leave-room-btn');
+        
+        const messageForm = document.getElementById('message-form');
+        const messageInput = document.getElementById('message-input');
+        const messageList = document.getElementById('message-list');
+        const chatRoomDisplay = document.getElementById('chat-room-display');
+
+        // --- Firebase Initialization ---
+        
+        // --- IMPORTANT: DEPLOYMENT CONFIG ---
+        // TODO: Paste your own Firebase config object here from Phase 1
+        // For Firebase JS SDK v7.20.0 and later, measurementId is optional
+       const firebaseConfig = {
+          apiKey: "AIzaSyDPzd5XwmKDefIka0LNqaps4ca1KWpFhcs",
+         authDomain: "chat-c6837.firebaseapp.com",
+         projectId: "chat-c6837",
+           storageBucket: "chat-c6837.firebasestorage.app",
+         messagingSenderId: "1065747207244",
+          appId: "1:1065747207244:web:7b7c1c650dace4ba8050e9",
+         measurementId: "G-7EK4PZHSXQ"
+        };
+        
+        // --- End of Deployment Config ---
+
+        // In production, we don't have the environment token, so we set it to null.
+        const initialAuthToken = null;
+
+
+        async function initializeFirebase() {
+            try {
+                // Check if the config is still the placeholder
+                if (firebaseConfig.apiKey === "YOUR_API_KEY") {
+                    document.body.innerHTML = `<div class="text-red-500 p-4 text-center"><strong>Error:</strong> Firebase config is not set. Please edit index.html, paste your Firebase project's configuration, and re-deploy.</div>`;
+                    console.error("Firebase config is not set.");
+                    return;
+                }
+
+                app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                
+                // Enable debug logging for Firestore
+                setLogLevel('Debug');
+
+                console.log("Firebase Initialized. Project ID:", firebaseConfig.projectId);
+
+                // Listen for auth state changes
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        console.log("User is signed in:", user.uid);
+                        userId = user.uid;
+                       // Don't check URL hash immediately, wait for sign-in
+                       if (!currentRoom) { // Only check if not already in a room process
+                            checkUrlHash();
+                       }
+                    } else {
+                        console.log("User is signed out. Attempting sign-in...");
+                        userId = null;
+                        await signIn();
+                    }
+                });
+            } catch (error) {
+                console.error("Error initializing Firebase:", error);
+                document.body.innerHTML = `<div class="text-red-500 p-4">Error initializing. Please check console.</div>`;
+            }
+        }
+
+        async function signIn() {
+            try {
+                if (initialAuthToken) {
+                    // This block will not run in production, but is safe to keep
+                    console.log("Signing in with custom token...");
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    // This is what will run on your deployed app
+                    console.log("Signing in anonymously...");
+                    await signInAnonymously(auth);
+                }
+            } catch (error) {
+                console.error("Error signing in:", error);
+            }
+        }
+
+        // --- App Logic ---
+
+        // 1. Check URL Hash to determine state
+       async function checkUrlHash() {
+            const hash = window.location.hash.substring(1);
+            if (hash) {
+                // We have a room ID in the URL
+                currentRoom = hash;
+                chatRoomDisplay.textContent = `Room: ${currentRoom}`;
+
+               // Check if room exists and requires a password
+               showLoading(true);
+               // DEPLOYMENT CHANGE: Use new, simpler database path
+               const roomDocRef = doc(db, `chat-rooms/${currentRoom}`);
+               try {
+                   const roomSnap = await getDoc(roomDocRef);
+                   showLoading(false);
+
+                   if (roomSnap.exists()) {
+                       // Room exists, ask for password
+                       showUI('password');
+                   } else {
+                       // Room doesn't exist, send back to room selection
+                       console.warn(`Room '${currentRoom}' does not exist. Redirecting.`);
+                       window.location.hash = ''; // This will trigger hashchange and show 'room' UI
+                   }
+               } catch (error) {
+                   console.error("Error checking room:", error);
+                   showLoading(false);
+                   window.location.hash = '';
+               }
+            } else {
+                // No room ID, show room selection
+                currentRoom = null;
+                chatRoomDisplay.textContent = '';
+                showUI('room');
+               passwordVerifyInput.value = '';
+               roomPasswordInput.value = '';
+               nameInput.value = '';
+            }
+        }
+
+        // 2. Handle Room Selection
+       roomForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+           roomError.classList.add('hidden');
+            const roomName = roomInput.value.trim().toLowerCase().replace(/[^a-z0-9-]/g, ''); // Sanitize room name
+           const password = roomPasswordInput.value.trim();
+
+           if (!roomName || !password) {
+               roomError.textContent = "Room name and password are required.";
+               roomError.classList.remove('hidden');
+               return;
+           }
+
+           showLoading(true);
+
+           try {
+               const passwordHash = await hashPassword(password);
+               // DEPLOYMENT CHANGE: Use new, simpler database path
+               const roomDocRef = doc(db, `chat-rooms/${roomName}`);
+               const roomSnap = await getDoc(roomDocRef);
+
+               if (roomSnap.exists()) {
+                   // Room exists, check password
+                   const storedHash = roomSnap.data().passwordHash;
+                   if (storedHash === passwordHash) {
+                       // Password matches, join room
+                       window.location.hash = roomName;
+                   } else {
+                       // Password mismatch
+                       roomError.textContent = "Invalid password for this room.";
+                       roomError.classList.remove('hidden');
+                   }
+               } else {
+                   // Room doesn't exist, create it
+                   await setDoc(roomDocRef, {
+                       passwordHash: passwordHash,
+                       createdAt: serverTimestamp()
+                   });
+                   // Password set, join room
+                   window.location.hash = roomName;
+               }
+
+           } catch (error) {
+               console.error("Error creating/joining room:", error);
+               roomError.textContent = "An error occurred. Please try again.";
+               roomError.classList.remove('hidden');
+           } finally {
+               showLoading(false);
+           }
+       });
+
+       // 3. Handle Password Verification (from URL)
+       passwordVerifyForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+           passwordError.classList.add('hidden');
+           const password = passwordVerifyInput.value.trim();
+
+           if (!password || !currentRoom) return;
+
+           showLoading(true);
+
+           try {
+               const passwordHash = await hashPassword(password);
+               // DEPLOYMENT CHANGE: Use new, simpler database path
+               const roomDocRef = doc(db, `chat-rooms/${currentRoom}`);
+               const roomSnap = await getDoc(roomDocRef);
+
+               if (roomSnap.exists() && roomSnap.data().passwordHash === passwordHash) {
+                   // Password is correct! Show name selection.
+                   showUI('name');
+               } else {
+                   // Invalid password
+                   passwordError.textContent = "Invalid password. Please try again.";
+                   passwordError.classList.remove('hidden');
+               }
+           } catch (error) {
+               console.error("Error verifying password:", error);
+               passwordError.textContent = "An error occurred. Please try again.";
+               passwordError.classList.remove('hidden');
+           } finally {
+               showLoading(false);
+           }
+       });
+
+       backToRoomsBtn.addEventListener('click', () => {
+           window.location.hash = '';
+       });
+
+       // 4. Handle Name Selection
+       nameForm.addEventListener('submit', (e) => {
+           e.preventDefault();
+            const name = nameInput.value.trim();
+            if (name) {
+                userName = name;
+                showUI('chat');
+                listenForMessages();
+            }
+        });
+        
+       // 5. Handle Leaving a Room
+        leaveRoomBtn.addEventListener('click', () => {
+            // Clear the hash, which triggers 'hashchange'
+            window.location.hash = '';
+            // Stop listening to messages
+            if (unsubscribeMessages) {
+                unsubscribeMessages();
+                unsubscribeMessages = null;
+            }
+            // Reset state
+            userName = null;
+            currentRoom = null;
+            nameInput.value = '';
+           passwordVerifyInput.value = '';
+            messageList.innerHTML = '';
+        });
+
+       // 6. Listen for new messages in the current room
+        function listenForMessages() {
+            if (!currentRoom) return;
+
+            console.log(`Listening for messages in: ${currentRoom}`);
+
+            // DEPLOYMENT CHANGE: Use new, simpler database path
+            const collectionPath = `chat-rooms/${currentRoom}/messages`;
+            const messagesCol = collection(db, collectionPath);
+            
+            // Per instructions, we will query without orderBy and sort on the client
+            const q = query(messagesCol);
+
+            unsubscribeMessages = onSnapshot(q, (snapshot) => {
+                let messages = [];
+                snapshot.forEach((doc) => {
+                    messages.push({ id: doc.id, ...doc.data() });
+                });
+
+                // Sort messages by timestamp on the client
+                messages.sort((a, b) => {
+                    const timeA = a.timestamp?.seconds || 0;
+                    const timeB = b.timestamp?.seconds || 0;
+                    return timeA - timeB;
+                });
+                
+                renderMessages(messages);
+
+            }, (error) => {
+                console.error("Error listening for messages:", error);
+            });
+        }
+
+       // 7. Render messages to the UI
+        function renderMessages(messages) {
+            messageList.innerHTML = ''; // Clear existing messages
+            
+            messages.forEach(msg => {
+                const isSelf = msg.senderId === userId;
+                
+                const messageWrapper = document.createElement('div');
+                messageWrapper.classList.add('flex', 'w-full', isSelf ? 'justify-end' : 'justify-start');
+                
+                const messageBubble = document.createElement('div');
+                messageBubble.classList.add(
+                    'max-w-xs',
+                    'md:max-w-md',
+                    'p-3',
+                    'rounded-lg',
+                    'shadow',
+                    isSelf ? 'bg-blue-600' : 'bg-gray-600'
+                );
+                
+                // Sanitize text content to prevent XSS
+                const senderName = document.createElement('div');
+                senderName.classList.add('font-bold', 'text-sm', 'mb-1');
+                senderName.textContent = msg.name || 'Anonymous';
+                
+                const messageText = document.createElement('div');
+                messageText.classList.add('text-white', 'break-words');
+                messageText.textContent = msg.text || '';
+
+                messageBubble.appendChild(senderName);
+                messageBubble.appendChild(messageText);
+                messageWrapper.appendChild(messageBubble);
+                messageList.appendChild(messageWrapper);
+            });
+
+            // Auto-scroll to bottom
+            messageList.scrollTop = messageList.scrollHeight;
+        }
+
+       // 8. Send a new message
+        messageForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const text = messageInput.value.trim();
+
+            if (text && currentRoom && userName && userId) {
+                // Clear input field immediately
+                messageInput.value = '';
+
+                try {
+                    // DEPLOYMENT CHANGE: Use new, simpler database path
+                    const collectionPath = `chat-rooms/${currentRoom}/messages`;
+                    const messagesCol = collection(db, collectionPath);
+                
+                    await addDoc(messagesCol, {
+                        name: userName,
+                        text: text,
+                        senderId: userId,
+                        timestamp: serverTimestamp() // Use server-side timestamp
+                    });
+                    console.log("Message sent!");
+                } catch (error) {
+                    console.error("Error sending message:", error);
+                    // Put the message back if sending failed
+                    messageInput.value = text; 
+                }
+            }
+        });
+
+        // --- Utility Functions ---
+        
+        // UI State Manager
+        function showUI(state) {
+           showLoading(false); // Hide loading by default when changing UI
+            roomSelectionUI.classList.add('hidden');
+            nameSelectionUI.classList.add('hidden');
+            chatUI.classList.add('hidden');
+           passwordVerifyUI.classList.add('hidden');
+
+            if (state === 'room') {
+                roomSelectionUI.classList.remove('hidden');
+           } else if (state === 'password') {
+               passwordVerifyUI.classList.remove('hidden');
+            } else if (state === 'name') {
+                nameSelectionUI.classList.remove('hidden');
+            } else if (state === 'chat') {
+                chatUI.classList.remove('hidden');
+            }
+        }
+
+       // Show/Hide Loading Spinner
+       function showLoading(isLoading) {
+           if (isLoading) {
+               loadingSpinner.classList.remove('hidden');
+           } else {
+               loadingSpinner.classList.add('hidden');
+           }
+       }
+
+       // Hash password with SHA-256
+       async function hashPassword(password) {
+           const encoder = new TextEncoder();
+           const data = encoder.encode(password);
+           const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+           const hashArray = Array.from(new Uint8Array(hashBuffer));
+           const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+           return hashHex;
+       }
+
+        // --- Event Listeners ---
+        
+        // Listen for hash changes to switch rooms
+        window.addEventListener('hashchange', () => {
+             // Stop listening to old room
+            if (unsubscribeMessages) {
+                unsubscribeMessages();
+                unsubscribeMessages = null;
+            }
+            messageList.innerHTML = ''; // Clear chat
+            checkUrlHash();
+        });
+
+        // Start the application
+        initializeFirebase();
+
+    </script>
+</body>
+</html>
