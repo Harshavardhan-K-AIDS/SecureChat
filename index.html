@@ -4,51 +4,52 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SecureChat</title>
-    <!-- Load Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        /* Use Inter font */
-        body {
-            font-family: 'Inter', sans-serif;
-        }
-        /* Custom scrollbar for chat */
-        #message-list::-webkit-scrollbar, #user-list::-webkit-scrollbar {
-            width: 6px;
-        }
-        #message-list::-webkit-scrollbar-track, #user-list::-webkit-scrollbar-track {
-            background: #2d3748; /* gray-800 */
-        }
-        #message-list::-webkit-scrollbar-thumb, #user-list::-webkit-scrollbar-thumb {
-            background: #4a5568; /* gray-600 */
-            border-radius: 3px;
-        }
+        body { font-family: 'Inter', sans-serif; }
+        #message-list::-webkit-scrollbar { width: 6px; }
+        #message-list::-webkit-scrollbar-track { background: #1f2937; }
+        #message-list::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 3px; }
+        #user-list::-webkit-scrollbar { width: 6px; }
+        #user-list::-webkit-scrollbar-track { background: #374151; }
+        #user-list::-webkit-scrollbar-thumb { background: #6b7280; border-radius: 3px; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
     </style>
-    <!-- Import Inter font from Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
 </head>
 <body class="bg-gray-900 text-white flex h-screen items-center justify-center">
 
-    <!-- Main App Container -->
-    <div class="w-full max-w-5xl h-full md:h-[90vh] md:max-h-[800px] bg-gray-800 rounded-lg shadow-2xl flex flex-col">
+    <div class="w-full h-full md:h-[90vh] md:max-h-[700px] md:max-w-4xl bg-gray-800 md:rounded-lg shadow-2xl flex flex-col">
 
         <!-- Header -->
-        <header class="bg-gray-700 p-4 rounded-t-lg shadow-md flex justify-between items-center">
-            <h1 class="text-xl font-bold">SecureChat</h1>
+        <header class="bg-gray-700 p-4 rounded-t-lg shadow-md flex justify-between items-center flex-shrink-0 z-10">
+            <div class="flex items-center gap-4">
+                <!-- Hamburger button (always visible in chat) -->
+                <button id="sidebar-toggle-btn" class="hidden text-gray-400 hover:text-white">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+                </button>
+                <h1 class="text-xl font-bold">SecureChat</h1>
+            </div>
             <div class="flex items-center gap-4">
                 <div id="chat-room-display" class="text-sm text-gray-300 font-mono"></div>
-                <!-- Feature 1: Delete Chat Button -->
-                <button id="delete-chat-btn" title="Delete all messages" class="hidden p-2 bg-red-600 hover:bg-red-700 rounded-lg transition duration-200">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                    </svg>
+                <button id="leave-chat-header-btn" title="Leave Room" class="hidden text-gray-400 hover:text-white transition-colors">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
+                </button>
+                <button id="delete-chat-btn" title="Delete All Messages" class="hidden text-gray-400 hover:text-red-500 transition-colors">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
                 </button>
             </div>
         </header>
 
         <!-- Main Content Area -->
-        <main class="flex-grow p-6 overflow-hidden relative flex flex-col md:flex-row gap-6">
+        <!-- CORE FIX: Removed 'p-6' from main. Padding is now on the children. -->
+        <main class="flex-grow overflow-hidden relative">
+
+            <!-- Sidebar overlay (always active) -->
+            <div id="sidebar-overlay" class="hidden fixed inset-0 bg-black/50 z-20"></div>
 
             <!-- Loading Spinner -->
             <div id="loading-spinner" class="hidden absolute inset-0 bg-gray-800 bg-opacity-75 flex items-center justify-center z-50">
@@ -60,73 +61,74 @@
             </div>
 
             <!-- UI: Room Selection -->
-            <div id="room-selection-ui" class="w-full">
-                <h2 class="text-2xl font-semibold mb-4 text-center">Create or Join a Room</h2>
-                <p class="text-gray-400 text-center mb-6">Enter a unique room name and a password.</p>
-                <form id="room-form" class="flex flex-col gap-4 max-w-md mx-auto">
-                    <label for="room-input" class="sr-only">Room Name</label>
-                    <input type="text" id="room-input" placeholder="e.g., 'secret-project-delta'" class="w-full px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required>
-                    
-                    <label for="room-password-input" class="sr-only">Password</label>
-                    <input type="password" id="room-password-input" placeholder="Enter a password" class="w-full px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required>
-                    
-                    <div id="room-error" class="text-red-400 text-sm text-center hidden"></div>
-
-                    <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg transition duration-200">
-                        Create / Join Room
-                    </button>
-                </form>
+            <!-- CORE FIX: Added 'p-6' here -->
+            <div id="room-selection-ui" class="w-full h-full p-6">
+                <div class="max-w-lg mx-auto">
+                    <h2 class="text-2xl font-semibold mb-4 text-center">Create or Join a Room</h2>
+                    <p class="text-gray-400 text-center mb-6">Enter a unique room name and a password.</p>
+                    <form id="room-form" class="flex flex-col gap-4">
+                        <input type="text" id="room-input" placeholder="e.g., 'secret-project-delta'" class="w-full px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required>
+                        <input type="password" id="room-password-input" placeholder="Enter a password" class="w-full px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required>
+                        <div id="room-error" class="text-red-400 text-sm text-center hidden"></div>
+                        <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg transition duration-200">
+                            Create / Join Room
+                        </button>
+                    </form>
+                </div>
             </div>
 
             <!-- UI: Password Verification (for joining via URL) -->
-            <div id="password-verify-ui" class="hidden w-full">
-                <h2 class="text-2xl font-semibold mb-4 text-center">Enter Room Password</h2>
-                <p class="text-gray-400 text-center mb-6">This room is password protected. Please enter the password to join.</p>
-                <form id="password-verify-form" class="flex flex-col gap-4 max-w-md mx-auto">
-                    <label for="password-verify-input" class="sr-only">Password</label>
-                    <input type="password" id="password-verify-input" placeholder="Enter password" class="w-full px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required>
-                    
-                    <div id="password-error" class="text-red-400 text-sm text-center hidden"></div>
-                    
-                    <button type="submit" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg transition duration-200">
-                        Enter Room
+            <!-- CORE FIX: Added 'p-6' here -->
+            <div id="password-verify-ui" class="hidden w-full h-full p-6">
+                <div class="max-w-lg mx-auto">
+                    <h2 class="text-2xl font-semibold mb-4 text-center">Enter Room Password</h2>
+                    <p class="text-gray-400 text-center mb-6">This room is password protected. Please enter the password to join.</p>
+                    <form id="password-verify-form" class="flex flex-col gap-4">
+                        <input type="password" id="password-verify-input" placeholder="Enter password" class="w-full px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required>
+                        <div id="password-error" class="text-red-400 text-sm text-center hidden"></div>
+                        <button type="submit" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg transition duration-200">
+                            Enter Room
+                        </button>
+                    </form>
+                    <button id="back-to-rooms-btn" class="w-full bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-4 rounded-lg transition duration-200 mt-4">
+                        Back to Room List
                     </button>
-                </form>
-                <button id="back-to-rooms-btn" class="block w-full max-w-md mx-auto bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-4 rounded-lg transition duration-200 mt-4">
-                    Back to Room List
-                </button>
+                </div>
             </div>
 
             <!-- UI: Name Selection -->
-            <div id="name-selection-ui" class="hidden w-full">
-                <h2 class="text-2xl font-semibold mb-4 text-center">Enter Your Name</h2>
-                <p class="text-gray-400 text-center mb-6">This name will be visible to others in the chat.</p>
-                <form id="name-form" class="flex flex-col gap-4 max-w-md mx-auto">
-                    <label for="name-input" class="sr-only">Your Name</label>
-                    <input type="text" id="name-input" placeholder="e.g., 'Alice'" class="w-full px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required>
-                    <!-- Feature 2: Name Error Div -->
-                    <div id="name-error" class="text-red-400 text-sm text-center hidden"></div>
-                    <button type="submit" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg transition duration-200">
-                        Join Chat
-                    </button>
-                </form>
-                 <button id="leave-room-btn" class="block w-full max-w-md mx-auto bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-4 rounded-lg transition duration-200 mt-4">
-                    Leave Room
-                </button>
+            <!-- CORE FIX: Added 'p-6' here -->
+            <div id="name-selection-ui" class="hidden w-full h-full p-6">
+                <div class="max-w-lg mx-auto">
+                    <h2 class="text-2xl font-semibold mb-4 text-center">Enter Your Name</h2>
+                    <p class="text-gray-400 text-center mb-6">This name will be visible to others in the chat.</p>
+                    <form id="name-form" class="flex flex-col gap-4">
+                        <input type="text" id="name-input" placeholder="e.g., 'Alice'" class="w-full px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required>
+                        <div id="name-error" class="text-red-400 text-sm text-center hidden"></div>
+                        <button type="submit" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg transition duration-200">
+                            Join Chat
+                        </button>
+                    </form>
+                </div>
             </div>
 
-            <!-- UI: Chat (Sidebar + Messages) -->
-            <div id="chat-ui" class="hidden h-full flex-grow md:flex-row flex-col flex gap-6">
-                <!-- Feature 3: Sidebar -->
-                <div class="w-full md:w-1/3 lg:w-1/4 flex-shrink-0 bg-gray-700 rounded-lg p-4 flex flex-col">
-                    <h3 class="text-lg font-semibold border-b border-gray-600 pb-2 mb-4">Users in Room</h3>
-                    <ul id="user-list" class="flex-grow overflow-y-auto space-y-2">
+            <!-- UI: Chat -->
+            <div id="chat-ui" class="hidden h-full w-full flex flex-col relative">
+                <!-- Sidebar (Users in Room) -->
+                <!-- CORE FIX: Sidebar is now positioned relative to 'chat-ui' which has no padding, so 'left-0' is the true edge. -->
+                <div id="sidebar" class="absolute inset-y-0 left-0 w-64 flex-shrink-0 bg-gray-700 p-4 rounded-lg flex flex-col z-30 -translate-x-full transition-transform duration-300 ease-in-out h-full">
+                    <h3 class="text-lg font-semibold mb-4 border-b border-gray-600 pb-2 flex justify-between items-center">
+                        Users in Room
+                        <span id="user-count" class="text-sm text-gray-300">(0)</span>
+                    </h3>
+                    <ul id="user-list" class="flex-grow overflow-y-auto space-y-2 no-scrollbar">
                         <!-- User list will be injected here -->
                     </ul>
                 </div>
                 
-                <!-- Message Area -->
-                <div class="flex-grow h-full flex flex-col">
+                <!-- Main Chat Area -->
+                <!-- CORE FIX: Added 'p-6' here so chat messages/form have padding. -->
+                <div class="flex-grow flex flex-col min-h-0 p-6">
                     <!-- Message List -->
                     <div id="message-list" class="flex-grow overflow-y-auto mb-4 p-4 bg-gray-900 rounded-lg space-y-4">
                         <!-- Messages will be injected here by JavaScript -->
@@ -134,7 +136,6 @@
                     
                     <!-- Message Input Form -->
                     <form id="message-form" class="flex-shrink-0 flex gap-3">
-                        <label for="message-input" class="sr-only">Your Message</label>
                         <input type="text" id="message-input" placeholder="Type your message..." class="flex-grow px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required>
                         <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-5 rounded-lg transition duration-200">
                             Send
@@ -142,58 +143,63 @@
                     </form>
                 </div>
             </div>
+
         </main>
     </div>
 
-    <!-- Feature 1: Delete Chat Confirmation Modal -->
-    <div id="delete-modal" class="hidden fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4">
+    <!-- Delete Chat Modal -->
+    <div id="delete-modal" class="hidden fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
         <div class="bg-gray-800 rounded-lg shadow-2xl p-6 max-w-sm w-full">
-            <h3 class="text-xl font-bold mb-4">Are you sure?</h3>
-            <p class="text-gray-300 mb-6">This will permanently delete all messages from the room for everyone. This action cannot be undone.</p>
+            <h3 class="text-xl font-semibold mb-4">Delete Chat History?</h3>
+            <p class="text-gray-300 mb-6">Are you sure you want to permanently delete all messages in this room? This cannot be undone.</p>
             <div class="flex justify-end gap-4">
-                <button id="cancel-delete-btn" class="px-4 py-2 bg-gray-600 hover:bg-gray-500 rounded-lg transition duration-200">Cancel</button>
-                <button id="confirm-delete-btn" class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition duration-200">Delete</button>
+                <button id="cancel-delete-btn" class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-lg transition duration-200">
+                    Cancel
+                </button>
+                <button id="confirm-delete-btn" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg transition duration-200">
+                    Delete
+                </button>
             </div>
         </div>
     </div>
 
-
-    <!-- Firebase SDK -->
+    <!-- Firebase SDK (Must be initialized before app.js) -->
     <script type="module">
         // Import Firebase modules
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { 
             getAuth, 
-            signInAnonymously, 
+            signInAnonymously,
             onAuthStateChanged 
         } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { 
-            getFirestore, 
-            setLogLevel 
+            getFirestore,
+            setLogLevel
         } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-        // Import all app logic from our new app.js file
+        
+        // Import your app logic
         import { initializeAppLogic } from './app.js';
 
         // --- IMPORTANT: DEPLOYMENT CONFIG ---
         // TODO: Paste your own Firebase config object here.
-        // This is the config you get from your Firebase project.
         // For Firebase JS SDK v7.20.0 and later, measurementId is optional
-        const firebaseConfig = {
-          apiKey: "AIzaSyDPzd5XwmKDefIka0LNqaps4ca1KWpFhcs",
-         authDomain: "chat-c6837.firebaseapp.com",
-         projectId: "chat-c6837",
-         storageBucket: "chat-c6837.firebasestorage.app",
-         messagingSenderId: "1065747207244",
-         appId: "1:1065747207244:web:7b7c1c650dace4ba8050e9",
-         measurementId: "G-7EK4PZHSXQ"
-        };
+const firebaseConfig = {
+  apiKey: "AIzaSyDPzd5XwmKDefIka0LNqaps4ca1KWpFhcs",
+  authDomain: "chat-c6837.firebaseapp.com",
+  projectId: "chat-c6837",
+  storageBucket: "chat-c6837.firebasestorage.app",
+  messagingSenderId: "1065747207244",
+  appId: "1:1065747207244:web:7b7c1c650dace4ba8050e9",
+  measurementId: "G-7EK4PZHSXQ"
+};
         // --- End of Deployment Config ---
 
-        async function initializeFirebase() {
+        // --- App Initialization ---
+        async function initializeAppWithFirebase() {
             try {
                 if (firebaseConfig.apiKey === "YOUR_API_KEY") {
                     document.body.innerHTML = `<div class="text-red-500 p-4 text-center"><strong>Error:</strong> Firebase config is not set. Please edit index.html, paste your Firebase project's configuration, and re-deploy.</div>`;
+                    console.error("Firebase config is not set.");
                     return;
                 }
 
@@ -202,27 +208,23 @@
                 const auth = getAuth(app);
                 
                 setLogLevel('Debug');
-                console.log("Firebase Initialized. Project ID:", firebaseConfig.projectId);
 
-                // Listen for auth state changes
-                onAuthStateChanged(auth, async (user) => {
+                onAuthStateChanged(auth, (user) => {
                     if (user) {
-                        console.log("User is signed in:", user.uid);
-                        // Pass the initialized services to our app logic
                         initializeAppLogic(db, auth, user.uid);
                     } else {
-                        console.log("User is signed out. Attempting sign-in...");
-                        await signInAnonymously(auth);
+                        signInAnonymously(auth).catch(error => {
+                            console.error("Anonymous sign-in failed:", error);
+                        });
                     }
                 });
-            } catch (error) {
+            } catch (error)
+ {
                 console.error("Error initializing Firebase:", error);
                 document.body.innerHTML = `<div class="text-red-500 p-4">Error initializing. Please check console.</div>`;
             }
         }
-
-        // Start the application
-        initializeFirebase();
+        initializeAppWithFirebase();
     </script>
 </body>
 </html>

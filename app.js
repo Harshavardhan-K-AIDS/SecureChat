@@ -30,31 +30,33 @@ const passwordError = document.getElementById('password-error');
 const backToRoomsBtn = document.getElementById('back-to-rooms-btn');
 const nameForm = document.getElementById('name-form');
 const nameInput = document.getElementById('name-input');
-const nameError = document.getElementById('name-error'); // Feature 2
-const leaveRoomBtn = document.getElementById('leave-room-btn');
+const nameError = document.getElementById('name-error');
 const messageForm = document.getElementById('message-form');
 const messageInput = document.getElementById('message-input');
 const messageList = document.getElementById('message-list');
 const chatRoomDisplay = document.getElementById('chat-room-display');
-const userList = document.getElementById('user-list'); // Feature 3
-const deleteChatBtn = document.getElementById('delete-chat-btn'); // Feature 1
-const deleteModal = document.getElementById('delete-modal'); // Feature 1
-const cancelDeleteBtn = document.getElementById('cancel-delete-btn'); // Feature 1
-const confirmDeleteBtn = document.getElementById('confirm-delete-btn'); // Feature 1
+const userList = document.getElementById('user-list');
+const deleteChatBtn = document.getElementById('delete-chat-btn');
+const leaveChatHeaderBtn = document.getElementById('leave-chat-header-btn');
+const deleteModal = document.getElementById('delete-modal');
+const cancelDeleteBtn = document.getElementById('cancel-delete-btn');
+const confirmDeleteBtn = document.getElementById('confirm-delete-btn');
+
+// NEW: Sidebar elements
+const sidebar = document.getElementById('sidebar');
+const sidebarToggleBtn = document.getElementById('sidebar-toggle-btn');
+const sidebarOverlay = document.getElementById('sidebar-overlay');
+const userCount = document.getElementById('user-count');
 
 /**
  * Main entry point for the application logic.
- * This is called from index.html after Firebase is initialized.
  */
 export function initializeAppLogic(appDb, appAuth, appUserId) {
     db = appDb;
     auth = appAuth;
     userId = appUserId;
 
-    // Start all event listeners
     setupEventListeners();
-
-    // Initial check of the URL hash
     handleHashChange();
 }
 
@@ -66,14 +68,21 @@ function setupEventListeners() {
     nameForm.addEventListener('submit', handleNameFormSubmit);
     messageForm.addEventListener('submit', handleMessageFormSubmit);
     backToRoomsBtn.addEventListener('click', () => window.location.hash = '');
-    leaveRoomBtn.addEventListener('click', handleLeaveRoom);
-    
-    // Feature 1: Delete Chat listeners
+    leaveChatHeaderBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        handleLeaveRoom();
+    });
+
+    // NEW: Sidebar listeners
+    sidebarToggleBtn.addEventListener('click', toggleSidebar);
+    sidebarOverlay.addEventListener('click', toggleSidebar);
+
+    // Delete Chat listeners
     deleteChatBtn.addEventListener('click', () => deleteModal.classList.remove('hidden'));
     cancelDeleteBtn.addEventListener('click', () => deleteModal.classList.add('hidden'));
     confirmDeleteBtn.addEventListener('click', handleDeleteChat);
     
-    // Feature 6: Page Title Notification listeners
+    // Page Title Notification listeners
     window.onfocus = () => {
         isWindowFocused = true;
         unreadMessages = 0;
@@ -87,18 +96,16 @@ function setupEventListeners() {
 // --- Navigation and UI Flow ---
 
 async function handleHashChange() {
-    // This flag prevents the listener from running when we programmatically change the hash
     if (isNavigating) {
         isNavigating = false;
         return;
     }
 
-    // Clean up any existing room listeners
     if (unsubscribeMessages) unsubscribeMessages();
     if (unsubscribeUsers) unsubscribeUsers();
     
     messageList.innerHTML = ''; 
-    userList.innerHTML = ''; // Feature 3
+    userList.innerHTML = '';
     
     const hash = window.location.hash.substring(1);
     
@@ -113,10 +120,8 @@ async function handleHashChange() {
             
             showLoading(false);
             if (roomSnap.exists()) {
-                // Room exists, ask for password
                 showUI('password');
             } else {
-                console.warn(`Room '${currentRoom}' does not exist. Redirecting.`);
                 window.location.hash = '';
             }
         } catch (error) {
@@ -125,7 +130,6 @@ async function handleHashChange() {
             window.location.hash = '';
         }
     } else {
-        // No hash, show room selection
         currentRoom = null;
         chatRoomDisplay.textContent = '';
         showUI('room');
@@ -142,9 +146,15 @@ function showUI(state) {
     nameSelectionUI.classList.add('hidden');
     chatUI.classList.add('hidden');
     passwordVerifyUI.classList.add('hidden');
-    deleteChatBtn.classList.add('hidden'); // Feature 1
-    
-    // Set room name display for all room-specific screens
+    deleteChatBtn.classList.add('hidden');
+    leaveChatHeaderBtn.classList.add('hidden');
+    sidebarToggleBtn.classList.add('hidden'); // NEW: Hide toggle by default
+
+    // Close sidebar if user navigates away from chat
+    if (state !== 'chat' && !sidebar.classList.contains('-translate-x-full')) {
+        toggleSidebar();
+    }
+
     if (currentRoom) {
         chatRoomDisplay.textContent = `Room: ${currentRoom}`;
     } else {
@@ -153,15 +163,17 @@ function showUI(state) {
 
     if (state === 'room') {
         roomSelectionUI.classList.remove('hidden');
-        chatRoomDisplay.textContent = ''; // No room name here
+        chatRoomDisplay.textContent = '';
     } else if (state === 'password') {
         passwordVerifyUI.classList.remove('hidden');
     } else if (state === 'name') {
         nameSelectionUI.classList.remove('hidden');
     } else if (state === 'chat') {
         chatUI.classList.remove('hidden');
-        deleteChatBtn.classList.remove('hidden'); // Feature 1
-        scrollToBottom(); // Feature 4
+        deleteChatBtn.classList.remove('hidden');
+        leaveChatHeaderBtn.classList.remove('hidden');
+        sidebarToggleBtn.classList.remove('hidden'); // NEW: Show toggle
+        scrollToBottom();
     }
 }
 
@@ -171,6 +183,12 @@ function showLoading(isLoading) {
     } else {
         loadingSpinner.classList.add('hidden');
     }
+}
+
+// NEW: Sidebar toggle function
+function toggleSidebar() {
+    sidebar.classList.toggle('-translate-x-full');
+    sidebarOverlay.classList.toggle('hidden');
 }
 
 // --- Form Handlers ---
@@ -196,14 +214,12 @@ async function handleRoomFormSubmit(e) {
         if (roomSnap.exists()) {
             const storedHash = roomSnap.data().passwordHash;
             if (storedHash === passwordHash) {
-                // Password matches, join room (by setting hash)
                 goToNameSelection(roomName);
             } else {
                 roomError.textContent = "Invalid password for this room.";
                 roomError.classList.remove('hidden');
             }
         } else {
-            // Room doesn't exist, create it
             await setDoc(roomDocRef, {
                 passwordHash: passwordHash,
                 createdAt: serverTimestamp()
@@ -233,7 +249,6 @@ async function handlePasswordVerifySubmit(e) {
         const roomSnap = await getDoc(roomDocRef);
         
         if (roomSnap.exists() && roomSnap.data().passwordHash === passwordHash) {
-            // Password is correct! Show name selection.
             showUI('name');
         } else {
             passwordError.textContent = "Invalid password. Please try again.";
@@ -248,7 +263,7 @@ async function handlePasswordVerifySubmit(e) {
     }
 }
 
-// Feature 2: Unique Name Logic
+// "Name-stealing" logic to fix ghost users
 async function handleNameFormSubmit(e) {
     e.preventDefault();
     nameError.classList.add('hidden');
@@ -261,31 +276,25 @@ async function handleNameFormSubmit(e) {
         const usersColRef = collection(db, `chat-rooms/${currentRoom}/users`);
         const querySnapshot = await getDocs(usersColRef);
         
-        let isNameTakenByOther = false;
+        let ghostUserDoc = null;
         let userAlreadyExists = false;
 
         querySnapshot.forEach(doc => {
             if (doc.data().name.toLowerCase() === name.toLowerCase()) {
                 if (doc.id !== userId) {
-                    isNameTakenByOther = true;
+                    ghostUserDoc = doc;
                 } else {
                     userAlreadyExists = true;
                 }
             }
         });
 
-        if (isNameTakenByOther) {
-            nameError.textContent = "This name is already taken by another active user. Please choose another.";
-            nameError.classList.remove('hidden');
-            showLoading(false);
-            return;
+        if (ghostUserDoc) {
+            await deleteDoc(ghostUserDoc.ref);
         }
 
         userName = name;
         
-        // --- THIS IS THE FIX ---
-        // Only add the user and "joined" message if they are
-        // actually new to the room, not just re-joining.
         if (!userAlreadyExists) {
             const userDocRef = doc(db, `chat-rooms/${currentRoom}/users`, userId);
             await setDoc(userDocRef, {
@@ -299,11 +308,10 @@ async function handleNameFormSubmit(e) {
                 timestamp: serverTimestamp()
             });
         }
-        // --- END OF FIX ---
         
         showUI('chat');
         listenForMessages();
-        listenForUsers(); // Feature 3
+        listenForUsers();
     } catch (error) {
         console.error("Error setting name or joining:", error);
         nameError.textContent = "An error occurred while joining.";
@@ -320,14 +328,12 @@ async function handleLeaveRoom() {
     }
 
     try {
-        // Add a "left" message
         await addDoc(collection(db, `chat-rooms/${currentRoom}/messages`), {
             type: "status",
             text: `${userName} has left the room.`,
             timestamp: serverTimestamp()
         });
 
-        // Feature 3: Remove user from user list
         const userDocRef = doc(db, `chat-rooms/${currentRoom}/users`, userId);
         await deleteDoc(userDocRef);
 
@@ -344,7 +350,7 @@ async function handleMessageFormSubmit(e) {
     const text = messageInput.value.trim();
     
     if (text && currentRoom && userName) {
-        messageInput.value = ''; // Clear input immediately
+        messageInput.value = '';
 
         try {
             const collectionPath = `chat-rooms/${currentRoom}/messages`;
@@ -353,11 +359,11 @@ async function handleMessageFormSubmit(e) {
                 name: userName,
                 text: text,
                 senderId: userId,
-                timestamp: serverTimestamp() // Real server timestamp
+                timestamp: serverTimestamp()
             });
         } catch (error) {
             console.error("Error sending message:", error);
-            messageInput.value = text; // Put message back on error
+            messageInput.value = text;
         }
     }
 }
@@ -367,41 +373,27 @@ async function handleMessageFormSubmit(e) {
 function listenForMessages() {
     if (!currentRoom) return;
     
-    // Clear the list before listening
     messageList.innerHTML = '';
 
     const messagesCol = collection(db, `chat-rooms/${currentRoom}/messages`);
-    const q = query(messagesCol); // No orderby, will sort on client
+    const q = query(messagesCol);
 
     unsubscribeMessages = onSnapshot(q, (snapshot) => {
         let newMessagesCount = 0;
-        let messages = [];
-
-        // Note: We use docChanges() to efficiently process only what's new or changed.
-        // But for timestamp updates, we need to handle 'modified'.
-        // Let's simplify and just re-render. A more complex app might diff.
-
-        // Re-simplification: On first load, render all. On updates, just add.
-        // This is complex with client-side sorting.
-        
-        // Let's use the stable client-side sort method.
         let allMessages = [];
         snapshot.forEach(doc => {
             allMessages.push({ id: doc.id, ...doc.data() });
         });
 
-        // Sort all messages by timestamp
         allMessages.sort((a, b) => (a.timestamp?.seconds || 0) - (b.timestamp?.seconds || 0));
 
         const shouldScroll = messageList.scrollTop + messageList.clientHeight >= messageList.scrollHeight - 20;
 
-        // Clear list and render all sorted messages
         messageList.innerHTML = '';
         allMessages.forEach(msg => {
             renderMessage(msg);
         });
 
-        // Check for new messages to update title
         snapshot.docChanges().forEach((change) => {
             if (change.type === "added") {
                 const msg = change.doc.data();
@@ -414,13 +406,11 @@ function listenForMessages() {
             }
         });
 
-        // Feature 6: Update page title
         if (newMessagesCount > 0 && !isWindowFocused) {
             unreadMessages += newMessagesCount;
             document.title = `(${unreadMessages}) ${originalTitle}`;
         }
         
-        // Feature 4: Scroll to bottom
         if (shouldScroll || newMessagesCount > 0) {
             scrollToBottom();
         }
@@ -430,13 +420,15 @@ function listenForMessages() {
     });
 }
 
-// Feature 3: Listen for users
 function listenForUsers() {
     if (!currentRoom) return;
 
     const usersColRef = collection(db, `chat-rooms/${currentRoom}/users`);
     unsubscribeUsers = onSnapshot(usersColRef, (snapshot) => {
         userList.innerHTML = '';
+        // NEW: Update user count
+        userCount.textContent = `(${snapshot.size})`;
+
         snapshot.forEach(doc => {
             const user = doc.data();
             const userEl = document.createElement('li');
@@ -456,7 +448,6 @@ function listenForUsers() {
 
 // --- Feature Functions ---
 
-// Feature 1: Delete all chat messages
 async function handleDeleteChat() {
     if (!currentRoom) return;
     
@@ -478,8 +469,7 @@ async function handleDeleteChat() {
         });
         
         await batch.commit();
-        messageList.innerHTML = ''; // Clear UI
-        console.log("All messages deleted.");
+        messageList.innerHTML = '';
     } catch (error) {
         console.error("Error deleting chat:", error);
     } finally {
@@ -487,13 +477,7 @@ async function handleDeleteChat() {
     }
 }
 
-/**
- * Renders a single message.
- * @param {object} msg - The message object.
- */
 function renderMessage(msg) {
-    // if (document.getElementById(msg.id)) return; // Avoid duplicates - removed for simplicity
-
     const isSelf = msg.senderId === userId;
     const messageWrapper = document.createElement('div');
     messageWrapper.id = msg.id;
@@ -518,7 +502,6 @@ function renderMessage(msg) {
             messageBubble.appendChild(messageText);
         }
         
-        // Feature 5: Timestamp
         const timestamp = document.createElement('div');
         timestamp.classList.add('timestamp', 'text-xs', 'text-gray-200', 'mt-1', 'text-right');
         timestamp.textContent = formatTimestamp(msg.timestamp);
@@ -534,12 +517,11 @@ function renderMessage(msg) {
 
 function goToNameSelection(roomName) {
     currentRoom = roomName;
-    isNavigating = true; // Set flag to prevent hashchange listener
+    isNavigating = true;
     window.location.hash = roomName;
-    showUI('name'); // Go directly to name selection
+    showUI('name');
 }
 
-// Feature 4: Scroll to bottom
 function scrollToBottom() {
     messageList.scrollTop = messageList.scrollHeight;
 }
@@ -547,15 +529,13 @@ function scrollToBottom() {
 async function hashPassword(password) {
     const encoder = new TextEncoder();
     const data = encoder.encode(password);
-    // THE FIX: Changed 'SHA-26' to 'SHA-256'
     const hashBuffer = await crypto.subtle.digest('SHA-256', data);
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-// Feature 5: Format timestamp
 function formatTimestamp(timestamp) {
-    if (!timestamp) return '...'; // Show ... if server timestamp isn't here yet
+    if (!timestamp) return '...';
     try {
         const date = timestamp.toDate();
         return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
