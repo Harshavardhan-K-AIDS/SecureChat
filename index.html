@@ -10,11 +10,110 @@
         #message-list::-webkit-scrollbar { width: 6px; }
         #message-list::-webkit-scrollbar-track { background: #1f2937; }
         #message-list::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 3px; }
+        #message-list::-webkit-scrollbar-thumb:hover { background: #6b7280; }
         #user-list::-webkit-scrollbar { width: 6px; }
         #user-list::-webkit-scrollbar-track { background: #374151; }
         #user-list::-webkit-scrollbar-thumb { background: #6b7280; border-radius: 3px; }
+        #user-list::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         .no-scrollbar::-webkit-scrollbar { display: none; }
+        
+        /* Smooth animations */
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        @keyframes fadeOut {
+            from {
+                opacity: 1;
+                transform: translateY(0);
+            }
+            to {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+        }
+        
+        .animate-fade-in {
+            animation: fadeIn 0.3s ease-out;
+        }
+        
+        .animate-fade-out {
+            animation: fadeOut 0.3s ease-out;
+        }
+        
+        /* Smooth transitions for UI state changes */
+        #room-selection-ui, #password-verify-ui, #name-selection-ui, #chat-ui {
+            transition: opacity 0.2s ease-in-out;
+        }
+        
+        /* Message input auto-resize */
+        #message-input {
+            resize: none;
+            min-height: 48px;
+            max-height: 150px;
+            transition: height 0.2s ease;
+        }
+        
+        /* Button hover effects */
+        button {
+            transition: all 0.2s ease;
+        }
+        
+        button:active {
+            transform: scale(0.98);
+        }
+        
+        /* Input focus effects */
+        input:focus, textarea:focus {
+            transition: all 0.2s ease;
+        }
+        
+        /* Sidebar smooth transition */
+        #sidebar {
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        /* Loading spinner animation */
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        
+        .animate-spin {
+            animation: spin 1s linear infinite;
+        }
+        
+        /* Pulse animation for typing indicator */
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .animate-pulse {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        
+        /* Smooth scroll behavior */
+        #message-list {
+            scroll-behavior: smooth;
+        }
+        
+        /* User list item hover */
+        #user-list li {
+            transition: background-color 0.2s ease;
+        }
+        
+        #user-list li:hover {
+            background-color: #4b5563;
+        }
     </style>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -135,14 +234,16 @@
                     </div>
                     
                     <!-- Message Input Form -->
-                    <form id="message-form" class="flex-shrink-0 flex gap-3">
+                    <form id="message-form" class="flex-shrink-0 flex gap-3 items-end">
                         <!-- 
-                          THE FIX IS HERE: autocomplete="off" 
-                          This tells the browser not to save or suggest previous entries.
+                          Changed to textarea for multi-line support
+                          autocomplete="off" tells the browser not to save or suggest previous entries.
                         -->
-                        <input type="text" id="message-input" placeholder="Type your message..." class="flex-grow px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required autocomplete="off">
-                        <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-5 rounded-lg transition duration-200">
-                            Send
+                        <textarea id="message-input" placeholder="Type your message... (Shift+Enter for new line)" class="flex-grow px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required autocomplete="off" rows="1"></textarea>
+                        <button type="submit" class="bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold py-3 px-5 rounded-lg transition duration-200 flex-shrink-0">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
+                            </svg>
                         </button>
                     </form>
                 </div>
@@ -222,8 +323,7 @@
                         });
                     }
                 });
-            } catch (error)
- {
+            } catch (error) {
                 console.error("Error initializing Firebase:", error);
                 document.body.innerHTML = `<div class="text-red-500 p-4">Error initializing. Please check console.</div>`;
             }

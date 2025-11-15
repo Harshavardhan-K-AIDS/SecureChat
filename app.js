@@ -15,8 +15,18 @@ let db, auth, currentUserId, userName;
 let currentRoom = null;
 let unsubscribeMessages = null; // To stop listening to messages
 let unsubscribeUsers = null; // To stop listening to users
+let unsubscribeTyping = null; // To stop listening to typing indicators
 let isNavigating = false; // Prevents hashchange loop
 let usersInRoom = new Map(); // Local cache of users
+let isWindowActive = true; // Track if window is focused
+let unreadMessages = 0; // Track unread message count
+let messageCache = new Map(); // Cache rendered messages to avoid re-rendering
+let typingTimeout = null; // For typing indicators
+let isTyping = false; // Track if user is typing
+let typingUsers = new Set(); // Track users who are typing
+let typingIndicatorTimeout = null; // Clear typing indicator after inactivity
+let isInitialMessageLoad = true; // Track if this is the first message load
+let beforeUnloadHandler = null; // Store the beforeunload handler reference
 
 // --- DOM Element Cache ---
 // We'll get these elements once the app initializes
@@ -77,8 +87,31 @@ export function initializeAppLogic(firestoreDB, firebaseAuth, uid) {
     // Wire up all event listeners
     setupEventListeners();
 
+    // Check for saved room session first
+    checkSavedSession();
+    
     // Check the URL hash to see if we're joining a room
     handleHashChange();
+}
+
+/**
+ * Checks if there's a saved room session and restores it.
+ * Always restores to password page for security - user must re-authenticate.
+ */
+function checkSavedSession() {
+    try {
+        const savedRoom = sessionStorage.getItem('securechat_lastRoom');
+        if (savedRoom && !window.location.hash) {
+            // There's a saved room and no hash in URL - restore to password page
+            // User must re-enter password for security
+            currentRoom = savedRoom;
+            isNavigating = true;
+            window.location.hash = savedRoom;
+            // This will trigger verifyRoomExists which shows password page
+        }
+    } catch (error) {
+        console.error('Error checking saved session:', error);
+    }
 }
 
 /**
@@ -95,7 +128,15 @@ function setupEventListeners() {
     dom.messageForm.addEventListener('submit', handleMessageFormSubmit);
 
     // Buttons
-    dom.backToRoomsBtn.addEventListener('click', () => window.location.hash = '');
+    dom.backToRoomsBtn.addEventListener('click', () => {
+        // Clear saved room session when going back
+        try {
+            sessionStorage.removeItem('securechat_lastRoom');
+        } catch (error) {
+            console.error('Error clearing sessionStorage:', error);
+        }
+        window.location.hash = '';
+    });
     dom.sidebarToggleBtn.addEventListener('click', toggleSidebar);
     dom.sidebarOverlay.addEventListener('click', toggleSidebar);
     dom.leaveChatHeaderBtn.addEventListener('click', handleLeaveRoom);
@@ -104,11 +145,45 @@ function setupEventListeners() {
     dom.confirmDeleteBtn.addEventListener('click', handleDeleteChat);
 
     // Title notifications
-    window.addEventListener('blur', () => isWindowActive = false);
+    window.addEventListener('blur', () => {
+        isWindowActive = false;
+    });
     window.addEventListener('focus', () => {
         isWindowActive = true;
         unreadMessages = 0;
         document.title = "SecureChat";
+    });
+    
+    // Request notification permission on first interaction
+    if ('Notification' in window && Notification.permission === 'default') {
+        // Request permission after a short delay to avoid blocking
+        setTimeout(() => {
+            Notification.requestPermission().catch(err => {
+                console.log('Notification permission request failed:', err);
+            });
+        }, 1000);
+    }
+
+    // Keyboard shortcuts
+    document.addEventListener('keydown', handleKeyboardShortcuts);
+    
+    // Typing indicator
+    dom.messageInput.addEventListener('input', handleTypingIndicator);
+    dom.messageInput.addEventListener('blur', stopTypingIndicator);
+    
+    // Auto-resize message input
+    dom.messageInput.addEventListener('input', autoResizeInput);
+    
+    // Prevent form submission on Enter+Shift (for multi-line)
+    dom.messageInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && e.shiftKey) {
+            e.preventDefault();
+            const start = dom.messageInput.selectionStart;
+            const end = dom.messageInput.selectionEnd;
+            dom.messageInput.value = dom.messageInput.value.substring(0, start) + '\n' + dom.messageInput.value.substring(end);
+            dom.messageInput.selectionStart = dom.messageInput.selectionEnd = start + 1;
+            autoResizeInput();
+        }
     });
 }
 
@@ -163,8 +238,16 @@ function showUI(state) {
  * Toggles the visibility of the user sidebar.
  */
 function toggleSidebar() {
+    const isHidden = dom.sidebar.classList.contains('-translate-x-full');
     dom.sidebar.classList.toggle('-translate-x-full');
     dom.sidebarOverlay.classList.toggle('hidden');
+    
+    // Prevent body scroll when sidebar is open on mobile
+    if (!isHidden) {
+        document.body.style.overflow = '';
+    } else {
+        document.body.style.overflow = 'hidden';
+    }
 }
 
 // --- Core App Logic (Joining/Leaving) ---
@@ -187,7 +270,17 @@ function handleHashChange() {
         // Check if room exists and requires a password
         verifyRoomExists(hash);
     } else {
-        // No room in hash, go to room selection
+        // No room in hash, check if we should restore saved session
+        const savedRoom = sessionStorage.getItem('securechat_lastRoom');
+        if (savedRoom) {
+            // Restore to password page for saved room
+            currentRoom = savedRoom;
+            isNavigating = true;
+            window.location.hash = savedRoom;
+            return;
+        }
+        
+        // No saved room, go to room selection
         currentRoom = null;
         userName = null;
         showUI('room');
@@ -249,8 +342,13 @@ async function handleRoomFormSubmit(e) {
         if (roomSnap.exists()) {
             // Room exists, check password
             if (roomSnap.data().passwordHash === passwordHash) {
-                // Password matches, navigate to name screen
-                currentRoom = roomName; // <-- THE FIX IS HERE
+                // Password matches, save room and navigate to name screen
+                currentRoom = roomName;
+                try {
+                    sessionStorage.setItem('securechat_lastRoom', currentRoom);
+                } catch (error) {
+                    console.error('Error saving room to sessionStorage:', error);
+                }
                 isNavigating = true; // Set lock
                 window.location.hash = roomName; // Set hash
                 showUI('name'); // Show name UI *before* hashchange fires
@@ -265,8 +363,13 @@ async function handleRoomFormSubmit(e) {
                 passwordHash: passwordHash,
                 createdAt: serverTimestamp()
             });
-            // Room created, navigate to name screen
-            currentRoom = roomName; // <-- THE FIX IS HERE
+            // Room created, save room and navigate to name screen
+            currentRoom = roomName;
+            try {
+                sessionStorage.setItem('securechat_lastRoom', currentRoom);
+            } catch (error) {
+                console.error('Error saving room to sessionStorage:', error);
+            }
             isNavigating = true; // Set lock
             window.location.hash = roomName; // Set hash
             showUI('name'); // Show name UI
@@ -296,7 +399,12 @@ async function handlePasswordVerifySubmit(e) {
         const roomSnap = await getDoc(roomDocRef);
 
         if (roomSnap.exists() && roomSnap.data().passwordHash === passwordHash) {
-            // Password is correct! Show name selection.
+            // Password is correct! Save room to sessionStorage and show name selection.
+            try {
+                sessionStorage.setItem('securechat_lastRoom', currentRoom);
+            } catch (error) {
+                console.error('Error saving room to sessionStorage:', error);
+            }
             showUI('name');
             dom.nameInput.focus();
         } else {
@@ -349,13 +457,49 @@ async function handleNameFormSubmit(e) {
         userName = name; // Set global user name
         const userDocRef = doc(db, 'chat-rooms', currentRoom, 'users', currentUserId);
 
+        // Check if user recently left (by checking recent messages)
+        let wasRejoining = false;
+        if (!existingUserDoc) {
+            // User document doesn't exist, check if they recently left
+            const messagesCol = collection(db, 'chat-rooms', currentRoom, 'messages');
+            const recentMessagesQuery = query(messagesCol);
+            const recentSnapshot = await getDocs(recentMessagesQuery);
+            
+            // Check last 50 messages for a "left" message with this name
+            const recentMessages = [];
+            recentSnapshot.forEach(doc => {
+                recentMessages.push(doc.data());
+            });
+            
+            // Sort by timestamp and check most recent
+            recentMessages.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
+            
+            // Check if there's a recent "left" message for this user (within last 5 minutes)
+            const fiveMinutesAgo = Math.floor(Date.now() / 1000) - 300;
+            for (const msg of recentMessages.slice(0, 50)) {
+                if (msg.type === 'event' && 
+                    msg.text && 
+                    msg.text.includes(`${userName} has left the room.`) &&
+                    msg.timestamp?.seconds > fiveMinutesAgo) {
+                    wasRejoining = true;
+                    break;
+                }
+            }
+        }
+
         if (existingUserDoc) {
-            // This is us re-joining. Just update the timestamp.
-            // This requires the 'update' rule in Firebase!
+            // This is us re-joining (document still exists - maybe page refresh).
+            // Just update the timestamp.
             await updateDoc(userDocRef, {
                 joined: serverTimestamp() // Update joined time
             });
-            // We don't post a "joined" message again.
+            // Post "rejoined" message
+            await addDoc(collection(db, 'chat-rooms', currentRoom, 'messages'), {
+                type: 'event',
+                text: `${userName} has rejoined the room.`,
+                timestamp: serverTimestamp(),
+                senderId: 'system'
+            });
         } else {
             // This is a new user or a new name.
             await setDoc(userDocRef, {
@@ -363,20 +507,41 @@ async function handleNameFormSubmit(e) {
                 joined: serverTimestamp()
             });
 
-            // Post "User has joined" message
-            await addDoc(collection(db, 'chat-rooms', currentRoom, 'messages'), {
-                type: 'event',
-                text: `${userName} has joined the room.`,
-                timestamp: serverTimestamp(),
-                senderId: 'system'
-            });
+            // Post appropriate message
+            if (wasRejoining) {
+                await addDoc(collection(db, 'chat-rooms', currentRoom, 'messages'), {
+                    type: 'event',
+                    text: `${userName} has rejoined the room.`,
+                    timestamp: serverTimestamp(),
+                    senderId: 'system'
+                });
+            } else {
+                await addDoc(collection(db, 'chat-rooms', currentRoom, 'messages'), {
+                    type: 'event',
+                    text: `${userName} has joined the room.`,
+                    timestamp: serverTimestamp(),
+                    senderId: 'system'
+                });
+            }
         }
 
+        // Successfully joined - save room to sessionStorage for future returns
+        try {
+            sessionStorage.setItem('securechat_lastRoom', currentRoom);
+        } catch (error) {
+            console.error('Error saving room to sessionStorage:', error);
+        }
+        
         // Successfully joined
         showUI('chat');
+        isInitialMessageLoad = true; // Reset flag for initial load
         dom.messageInput.focus();
         listenForMessages();
         listenForUsers();
+        listenForTyping();
+        
+        // Set up beforeunload handler to clean up when user closes tab/window
+        setupBeforeUnloadHandler();
 
     } catch (error) {
         console.error("Error joining chat:", error);
@@ -389,14 +554,40 @@ async function handleNameFormSubmit(e) {
  * Handles leaving the room when the header button is clicked.
  */
 async function handleLeaveRoom() {
+    await cleanupUserPresence();
+    // Clear saved room session
+    try {
+        sessionStorage.removeItem('securechat_lastRoom');
+    } catch (error) {
+        console.error('Error clearing sessionStorage:', error);
+    }
+    window.location.hash = ''; // This triggers handleHashChange
+}
+
+/**
+ * Cleans up user presence from the room (called on leave or beforeunload).
+ * This marks the user as having left the room.
+ */
+async function cleanupUserPresence() {
     if (!currentRoom || !userName || !currentUserId) return;
 
     // Hide sidebar if open
-    dom.sidebar.classList.add('-translate-x-full');
-    dom.sidebarOverlay.classList.add('hidden');
+    if (dom.sidebar) {
+        dom.sidebar.classList.add('-translate-x-full');
+    }
+    if (dom.sidebarOverlay) {
+        dom.sidebarOverlay.classList.add('hidden');
+    }
 
     try {
-        // 1. Post "User has left" message
+        // 1. Stop typing indicator first
+        stopTypingIndicator();
+        
+        // 2. Delete user from the 'users' list
+        const userDocRef = doc(db, 'chat-rooms', currentRoom, 'users', currentUserId);
+        await deleteDoc(userDocRef);
+
+        // 3. Post "User has left" message
         await addDoc(collection(db, 'chat-rooms', currentRoom, 'messages'), {
             type: 'event',
             text: `${userName} has left the room.`,
@@ -404,18 +595,42 @@ async function handleLeaveRoom() {
             senderId: 'system'
         });
 
-        // 2. Delete user from the 'users' list
-        const userDocRef = doc(db, 'chat-rooms', currentRoom, 'users', currentUserId);
-        await deleteDoc(userDocRef);
-
-        // 3. Go back to room selection
-        window.location.hash = ''; // This triggers handleHashChange
-
     } catch (error) {
-        console.error("Error leaving room:", error);
-        // Still force-navigate back
-        window.location.hash = '';
+        console.error("Error cleaning up user presence:", error);
+        // Note: If this fails during page unload, that's okay - 
+        // the user will need to re-authenticate anyway
     }
+}
+
+/**
+ * Sets up the beforeunload handler to clean up when user closes tab/window.
+ * Only cleans up on actual page unload, not on tab switches.
+ */
+function setupBeforeUnloadHandler() {
+    // Remove existing handler if any
+    if (beforeUnloadHandler) {
+        window.removeEventListener('beforeunload', beforeUnloadHandler);
+        window.removeEventListener('pagehide', beforeUnloadHandler);
+    }
+    
+    // Create handler for beforeunload/pagehide (fires on actual page unload)
+    // pagehide is more reliable than beforeunload, especially on mobile
+    beforeUnloadHandler = (e) => {
+        // Clean up user presence when closing tab/window
+        // Keep sessionStorage so user can return and re-authenticate
+        if (currentRoom && userName && currentUserId) {
+            // Clean up user presence (fire-and-forget since we're unloading)
+            // Don't clear sessionStorage - let user return to password page
+            cleanupUserPresence().catch(err => {
+                console.error('Error in beforeunload cleanup:', err);
+            });
+        }
+    };
+    
+    // Use pagehide as primary (more reliable, especially on mobile)
+    window.addEventListener('pagehide', beforeUnloadHandler);
+    // Use beforeunload as backup
+    window.addEventListener('beforeunload', beforeUnloadHandler);
 }
 
 // --- Chat Functionality ---
@@ -430,17 +645,38 @@ function listenForMessages() {
     const q = query(messagesCol); // No 'orderBy', we sort client-side
 
     unsubscribeMessages = onSnapshot(q, (snapshot) => {
+        // Handle connection state
+        if (snapshot.metadata.fromCache) {
+            // Data is from cache, might be offline
+            console.log('Reading from cache - might be offline');
+        }
+        
         let messages = [];
-        let modifiedMessages = [];
+        let isInitialSnapshot = isInitialMessageLoad;
 
         snapshot.docChanges().forEach(change => {
             const msgData = { id: change.doc.id, ...change.doc.data() };
             if (change.type === 'added') {
                 messages.push(msgData);
-                // Handle title notification
-                if (msgData.senderId !== currentUserId && !isWindowActive) {
+                // Handle title notification and browser notification
+                // Only show notifications for new messages after initial load
+                if (!isInitialSnapshot && msgData.senderId !== currentUserId && !isWindowActive) {
                     unreadMessages++;
                     document.title = `(${unreadMessages}) SecureChat`;
+                    
+                    // Request browser notification permission and show notification
+                    if ('Notification' in window && Notification.permission === 'granted') {
+                        try {
+                            new Notification(`${msgData.name || 'Someone'} sent a message`, {
+                                body: msgData.text?.substring(0, 100) || 'New message',
+                                icon: '/favicon.ico',
+                                tag: 'securechat-message',
+                                requireInteraction: false
+                            });
+                        } catch (err) {
+                            // Notification failed, ignore
+                        }
+                    }
                 }
             } else if (change.type === 'modified') {
                 // Handle timestamp updates for our own messages
@@ -453,18 +689,37 @@ function listenForMessages() {
             } else if (change.type === 'removed') {
                 const msgElement = document.querySelector(`[data-id="${change.doc.id}"]`);
                 if (msgElement) {
-                    msgElement.remove();
+                    msgElement.classList.add('animate-fade-out');
+                    setTimeout(() => {
+                        msgElement.remove();
+                        messageCache.delete(change.doc.id);
+                    }, 300);
                 }
             }
         });
 
         // Sort all new messages by timestamp
-        messages.sort((a, b) => (a.timestamp?.seconds || 0) - (b.timestamp?.seconds || 0));
+        if (messages.length > 0) {
+            messages.sort((a, b) => (a.timestamp?.seconds || 0) - (b.timestamp?.seconds || 0));
+            renderMessages(messages, 'added', isInitialSnapshot);
+        }
         
-        renderMessages(messages, 'added');
+        // After initial load, mark as complete and force scroll to bottom
+        if (isInitialSnapshot) {
+            isInitialMessageLoad = false;
+            // Force scroll to bottom after initial messages are rendered
+            setTimeout(() => {
+                scrollToBottom(true);
+            }, 100);
+        }
+        
+        // Hide connection error if messages are loading successfully
+        hideConnectionError();
         
     }, (error) => {
         console.error("Error listening for messages:", error);
+        // Show connection error notification
+        showConnectionError();
     });
 }
 
@@ -490,30 +745,107 @@ function listenForUsers() {
         users.sort((a, b) => (a.joined?.seconds || 0) - (b.joined?.seconds || 0));
 
         renderUserList(users);
+        
+        // Hide connection error if users are loading successfully
+        hideConnectionError();
 
     }, (error) => {
         console.error("Error listening for users:", error);
+        showConnectionError();
     });
+}
+
+/**
+ * Listens for typing indicators from other users.
+ */
+function listenForTyping() {
+    if (unsubscribeTyping) unsubscribeTyping();
+    if (!currentRoom) return;
+    
+    const typingCol = collection(db, 'chat-rooms', currentRoom, 'typing');
+    const q = query(typingCol);
+    
+    unsubscribeTyping = onSnapshot(q, (snapshot) => {
+        typingUsers.clear();
+        snapshot.forEach(doc => {
+            if (doc.id !== currentUserId) {
+                const typingData = doc.data();
+                // Only show typing if it's recent (within last 5 seconds)
+                const typingTime = typingData.timestamp?.seconds || 0;
+                const now = Math.floor(Date.now() / 1000);
+                if (now - typingTime < 5) {
+                    typingUsers.add(typingData.name || 'Someone');
+                }
+            }
+        });
+        
+        renderTypingIndicator();
+    }, (error) => {
+        console.error("Error listening for typing:", error);
+    });
+}
+
+/**
+ * Renders the typing indicator below the message list.
+ */
+function renderTypingIndicator() {
+    // Remove existing typing indicator
+    let existingIndicator = document.getElementById('typing-indicator');
+    if (existingIndicator) {
+        existingIndicator.remove();
+    }
+    
+    if (typingUsers.size > 0) {
+        const typingArray = Array.from(typingUsers);
+        let typingText = '';
+        
+        if (typingArray.length === 1) {
+            typingText = `${typingArray[0]} is typing...`;
+        } else if (typingArray.length === 2) {
+            typingText = `${typingArray[0]} and ${typingArray[1]} are typing...`;
+        } else {
+            typingText = `${typingArray[0]} and ${typingArray.length - 1} others are typing...`;
+        }
+        
+        const indicator = document.createElement('div');
+        indicator.id = 'typing-indicator';
+        indicator.classList.add('text-gray-400', 'text-sm', 'italic', 'px-4', 'py-2', 'animate-pulse', 'mb-2');
+        indicator.textContent = typingText;
+        
+        // Insert before the message form
+        const messageForm = dom.messageForm;
+        if (messageForm && messageForm.parentElement) {
+            messageForm.parentElement.insertBefore(indicator, messageForm);
+        }
+    }
 }
 
 /**
  * Renders messages to the chat window.
  * @param {Array} messages - An array of message objects to render.
  * @param {string} type - 'added' or 'all'. 'added' appends, 'all' overwrites.
+ * @param {boolean} forceScroll - If true, force scroll to bottom (for initial load).
  */
-function renderMessages(messages, type) {
+function renderMessages(messages, type, forceScroll = false) {
     if (type === 'all') {
         dom.messageList.innerHTML = '';
+        messageCache.clear();
     }
     
-    const shouldScroll = dom.messageList.scrollTop + dom.messageList.clientHeight >= dom.messageList.scrollHeight - 30;
+    const shouldScroll = forceScroll || (dom.messageList.scrollTop + dom.messageList.clientHeight >= dom.messageList.scrollHeight - 30);
 
     messages.forEach(msg => {
+        // Skip if message already rendered (use cache)
+        if (messageCache.has(msg.id)) {
+            return;
+        }
+        
         const isSelf = msg.senderId === currentUserId;
         const isSystem = msg.senderId === 'system';
 
         const messageWrapper = document.createElement('div');
         messageWrapper.setAttribute('data-id', msg.id);
+        messageWrapper.classList.add('message-item', 'animate-fade-in');
 
         if (isSystem) {
             // System message (joined/left/deleted)
@@ -529,20 +861,24 @@ function renderMessages(messages, type) {
                 'md:max-w-md',
                 'p-3',
                 'rounded-lg',
-                'shadow',
+                'shadow-lg',
+                'transition-all',
+                'hover:shadow-xl',
                 isSelf ? 'bg-blue-600' : 'bg-gray-600'
             );
             
             const senderName = document.createElement('div');
-            senderName.classList.add('font-bold', 'text-sm', 'mb-1');
+            senderName.classList.add('font-bold', 'text-sm', 'mb-1', 'opacity-90');
             senderName.textContent = msg.name || 'Anonymous';
             
             const messageText = document.createElement('div');
             messageText.classList.add('text-white', 'break-words', 'whitespace-pre-wrap');
-            messageText.textContent = msg.text || ''; // Use textContent for security
+            // Escape HTML to prevent XSS
+            const textNode = document.createTextNode(msg.text || '');
+            messageText.appendChild(textNode);
 
             const timestamp = document.createElement('div');
-            timestamp.classList.add('text-xs', 'text-gray-300', 'mt-1', 'text-right', 'chat-timestamp');
+            timestamp.classList.add('text-xs', 'text-gray-300', 'mt-1', 'text-right', 'chat-timestamp', 'opacity-75');
             timestamp.textContent = formatTimestamp(msg.timestamp);
 
             messageBubble.appendChild(senderName);
@@ -550,13 +886,34 @@ function renderMessages(messages, type) {
             messageBubble.appendChild(timestamp);
             messageWrapper.appendChild(messageBubble);
         }
+        
+        // Cache the rendered message
+        messageCache.set(msg.id, messageWrapper);
         dom.messageList.appendChild(messageWrapper);
     });
 
-    // Auto-scroll to bottom only if user was already at the bottom
+    // Auto-scroll to bottom if user was already at the bottom or if forced (initial load)
     if (shouldScroll) {
-        dom.messageList.scrollTop = dom.messageList.scrollHeight;
+        scrollToBottom(!forceScroll); // Use smooth scroll only if not initial load
     }
+}
+
+/**
+ * Scrolls the message list to the bottom.
+ * @param {boolean} smooth - Whether to use smooth scrolling.
+ */
+function scrollToBottom(smooth = true) {
+    requestAnimationFrame(() => {
+        if (dom.messageList.scrollTo && smooth) {
+            dom.messageList.scrollTo({
+                top: dom.messageList.scrollHeight,
+                behavior: 'smooth'
+            });
+        } else {
+            // Instant scroll for initial load
+            dom.messageList.scrollTop = dom.messageList.scrollHeight;
+        }
+    });
 }
 
 /**
@@ -597,7 +954,12 @@ async function handleMessageFormSubmit(e) {
     const text = dom.messageInput.value.trim();
 
     if (text && currentRoom && userName && currentUserId) {
+        // Stop typing indicator
+        stopTypingIndicator();
+        
         dom.messageInput.value = ''; // Clear input immediately
+        autoResizeInput(); // Reset input height
+        
         try {
             const collectionPath = `chat-rooms/${currentRoom}/messages`;
             await addDoc(collection(db, collectionPath), {
@@ -609,6 +971,16 @@ async function handleMessageFormSubmit(e) {
         } catch (error) {
             console.error("Error sending message:", error);
             dom.messageInput.value = text; // Put message back on error
+            autoResizeInput();
+            // Show a temporary error notification
+            const errorNotification = document.createElement('div');
+            errorNotification.className = 'fixed top-4 right-4 bg-red-600 text-white px-4 py-2 rounded-lg shadow-lg z-50 animate-fade-in';
+            errorNotification.textContent = 'Failed to send message. Please try again.';
+            document.body.appendChild(errorNotification);
+            setTimeout(() => {
+                errorNotification.classList.add('animate-fade-out');
+                setTimeout(() => errorNotification.remove(), 300);
+            }, 3000);
         }
     }
 }
@@ -675,6 +1047,24 @@ function cleanupSubscriptions() {
         unsubscribeUsers();
         unsubscribeUsers = null;
     }
+    if (unsubscribeTyping) {
+        unsubscribeTyping();
+        unsubscribeTyping = null;
+    }
+    // Stop typing indicator
+    stopTypingIndicator();
+    typingUsers.clear();
+    const existingIndicator = document.getElementById('typing-indicator');
+    if (existingIndicator) {
+        existingIndicator.remove();
+    }
+    
+    // Remove beforeunload handler
+    if (beforeUnloadHandler) {
+        window.removeEventListener('beforeunload', beforeUnloadHandler);
+        window.removeEventListener('pagehide', beforeUnloadHandler);
+        beforeUnloadHandler = null;
+    }
 }
 
 /**
@@ -719,6 +1109,131 @@ function formatTimestamp(timestamp) {
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
 }
 
-// --- Title Notification Globals ---
-let isWindowActive = true;
-let unreadMessages = 0;
+// --- Keyboard Shortcuts Handler ---
+function handleKeyboardShortcuts(e) {
+    // Escape key: Close sidebar or modal
+    if (e.key === 'Escape') {
+        if (!dom.deleteModal.classList.contains('hidden')) {
+            dom.deleteModal.classList.add('hidden');
+        } else if (!dom.sidebar.classList.contains('-translate-x-full')) {
+            toggleSidebar();
+        }
+    }
+    
+    // Enter key: Send message (if in chat and not Shift+Enter)
+    if (e.key === 'Enter' && !e.shiftKey && !dom.chatUI.classList.contains('hidden')) {
+        if (document.activeElement === dom.messageInput) {
+            e.preventDefault();
+            dom.messageForm.dispatchEvent(new Event('submit'));
+        }
+    }
+    
+    // Ctrl/Cmd + K: Focus message input
+    if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        if (!dom.chatUI.classList.contains('hidden')) {
+            dom.messageInput.focus();
+        }
+    }
+}
+
+// --- Typing Indicator Functions ---
+let typingDebounceTimer = null;
+
+function handleTypingIndicator() {
+    if (!currentRoom || !userName || !currentUserId) return;
+    
+    // Debounce typing indicator updates (update every 1 second max)
+    if (typingDebounceTimer) {
+        clearTimeout(typingDebounceTimer);
+    }
+    
+    typingDebounceTimer = setTimeout(() => {
+        if (!isTyping) {
+            isTyping = true;
+            // Update typing status in Firestore
+            const typingRef = doc(db, 'chat-rooms', currentRoom, 'typing', currentUserId);
+            setDoc(typingRef, {
+                name: userName,
+                timestamp: serverTimestamp()
+            }, { merge: true }).catch(err => {
+                console.error('Error setting typing status:', err);
+                // Don't show error to user for typing indicator failures
+            });
+        }
+        
+        // Clear existing timeout
+        if (typingTimeout) {
+            clearTimeout(typingTimeout);
+        }
+        
+        // Set timeout to stop typing indicator after 3 seconds of inactivity
+        typingTimeout = setTimeout(() => {
+            stopTypingIndicator();
+        }, 3000);
+    }, 1000); // Debounce to 1 second
+}
+
+function stopTypingIndicator() {
+    if (!currentRoom || !currentUserId) return;
+    
+    // Clear debounce timer
+    if (typingDebounceTimer) {
+        clearTimeout(typingDebounceTimer);
+        typingDebounceTimer = null;
+    }
+    
+    if (isTyping) {
+        isTyping = false;
+        const typingRef = doc(db, 'chat-rooms', currentRoom, 'typing', currentUserId);
+        deleteDoc(typingRef).catch(err => {
+            console.error('Error removing typing status:', err);
+            // Don't show error to user for typing indicator failures
+        });
+    }
+    
+    if (typingTimeout) {
+        clearTimeout(typingTimeout);
+        typingTimeout = null;
+    }
+}
+
+// --- Auto-resize Input ---
+function autoResizeInput() {
+    dom.messageInput.style.height = 'auto';
+    dom.messageInput.style.height = Math.min(dom.messageInput.scrollHeight, 150) + 'px';
+}
+
+// --- Connection Error Handler ---
+let connectionErrorTimeout = null;
+
+function showConnectionError() {
+    // Remove existing error if any
+    let existingError = document.getElementById('connection-error');
+    if (existingError) {
+        return; // Already showing error
+    }
+    
+    const errorDiv = document.createElement('div');
+    errorDiv.id = 'connection-error';
+    errorDiv.className = 'fixed top-4 left-1/2 transform -translate-x-1/2 bg-yellow-600 text-white px-4 py-2 rounded-lg shadow-lg z-50 animate-fade-in';
+    errorDiv.textContent = 'Connection issue. Retrying...';
+    document.body.appendChild(errorDiv);
+    
+    // Auto-hide after 5 seconds if connection is restored
+    connectionErrorTimeout = setTimeout(() => {
+        hideConnectionError();
+    }, 5000);
+}
+
+function hideConnectionError() {
+    const errorDiv = document.getElementById('connection-error');
+    if (errorDiv) {
+        errorDiv.classList.add('animate-fade-out');
+        setTimeout(() => errorDiv.remove(), 300);
+    }
+    if (connectionErrorTimeout) {
+        clearTimeout(connectionErrorTimeout);
+        connectionErrorTimeout = null;
+    }
+}
