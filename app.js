@@ -6,7 +6,7 @@
 //updates done here
 // Import necessary Firebase functions (these are available globally from the script in index.html)
 const {
-    getFirestore, doc, addDoc, collection, onSnapshot, query,
+    getFirestore, doc, addDoc, collection, onSnapshot, query, orderBy,
     serverTimestamp, getDoc, setDoc, updateDoc, getDocs, deleteDoc, writeBatch
 } = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js");
 
@@ -754,7 +754,7 @@ function listenForMessages() {
     if (unsubscribeMessages) unsubscribeMessages(); // Stop old listener
 
     const messagesCol = collection(db, 'chat-rooms', currentRoom, 'messages');
-    const q = query(messagesCol); // No 'orderBy', we sort client-side
+    const q = query(messagesCol, orderBy('timestamp', 'asc')); // Order by timestamp ascending
 
     unsubscribeMessages = onSnapshot(q, (snapshot) => {
         // Handle connection state
@@ -939,7 +939,8 @@ function renderTypingIndicator() {
  * @param {boolean} forceScroll - If true, force scroll to bottom (for initial load).
  */
 function renderMessages(messages, type, forceScroll = false) {
-    if (type === 'all') {
+    // Always clear on initial load to ensure fresh render
+    if (type === 'all' || forceScroll) {
         dom.messageList.innerHTML = '';
         messageCache.clear();
     }
